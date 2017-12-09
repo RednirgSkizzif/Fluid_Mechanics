@@ -49,10 +49,9 @@ def update_state_up(step_size, s):
     s["a"] = acceleration(s["F_1"] - s["F_2"] + s["impact"]  - s["friction_loss"] ,s["m"]) #calculate a
     s["u"] = velocity(s["u"],s["a"],step_size ) #update velocity
     s["x"] = position(s["x"],s["u"],step_size ) #update position
-    if s["x"] > s["x_max"]:
-        s["x"] = s["x_max"]
+
     s["V_1"] = Volume(s["A"],s["x"]) # calculate V
-    s["V_2"] = Volume(s["A"],s["x_max"]-s["x"]) # calculate V
+    s["V_2"] = Volume(s["A"],s["x_max"]-s["x"]+s["x_min"]) # calculate V
     s["time"] = s["time"]+step_size
     
     if s["x"] >= s["x_max"] :
@@ -78,10 +77,9 @@ def update_state_down(step_size, s):
     s["a"] = acceleration(s["F_1"] - s["F_2"] + s["impact"] - s["friction_loss"],s["m"]) #calculate a
     s["u"] = velocity(s["u"],s["a"],step_size ) #update velocity
     s["x"] = position(s["x"],s["u"],step_size ) #update position
-    if s["x"] > s["x_max"]:
-        s["x"] = s["x_max"]
+
     s["V_1"] = Volume(s["A"],s["x"]) # calculate V
-    s["V_2"] = Volume(s["A"],s["x_max"]-s["x"]) # calculate V
+    s["V_2"] = Volume(s["A"],s["x_max"]-s["x"]+s["x_min"]) # calculate V
     s["time"] = s["time"]+step_size
     
     if s["x"] >= s["x_max"] :
@@ -191,10 +189,6 @@ def propogate(step_size,num_steps,num_cycles,state_vector):
     plt.plot(times, vel_list ,'b.-')
     plt.ylabel(' m/s')
 
-    plt.subplot(6, 2, 10)
-    plt.plot(times, vol_2, 'r-')
-    plt.ylabel('Vol2 m^3')
-
     plt.subplot(6, 2, 11)
     table_height = 0.05
     plt.plot(times, pos_list, 'r-')
@@ -203,7 +197,7 @@ def propogate(step_size,num_steps,num_cycles,state_vector):
     plt.show()
 
 #main loop
-gauge_pressure = 282476 #Pressure supplied to system
+gauge_pressure = 382476 #Pressure supplied to system
 mass = 0.5#mass of cylinder
 r = 0.03#radius of cylinder
 cycles = 50
@@ -216,7 +210,7 @@ state_vector ={
     "radius": r,#radius of cylinder in meters
     "A_inlet":3.14 * 0.003175**2,#Cross sectional area of inlet, meters
     "k":0.03,#imperical flow resistance
-    "x_max":0.03,#length at which piston hits table
+    "x_max":0.030,#length at which piston hits table
     "x_min":0.010,#Min position of piston
     "R":8.314,#Ideal Gas Const J/mol K
     "T":273,#Temp in Kelvin
@@ -229,7 +223,7 @@ state_vector ={
     "flow_1":0.0, #Air flow in moles/s this will be function of pressure differential
     "time":0.0, #Global time variables sec
     "impact": 0.0, #Force due t impact Newtons
-    "impulse_k": 100000, #emprical impulse coefficient
+    "impulse_k": 1000000, #emprical impulse coefficient
     "mass_table": 10.0, #mass of table
     "transfer": 0.0, #Energy transfered to the table
     "momentum_loss_factor":1.0 #emprical factor to gauge inefficency (sound, heat loss)
