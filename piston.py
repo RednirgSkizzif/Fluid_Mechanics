@@ -56,11 +56,12 @@ def update_state_up(step_size, s):
     
     if s["x"] >= s["x_max"] :
         s["impact"] = - s["impulse_k"] * (s["x"]-s["x_max"])
-        s["transfer"] = s["impact"] / s["m"]
+        s["transfer"] = s["a"] / (s["mass_table"]/s["m"])
     elif s["x"] <= s["x_min"]:
         s["impact"] = - s["impulse_k"] * (s["x"]-s["x_min"])
-        s["transfer"] = s["impact"] / s["m"]
+        s["transfer"] = s["a"] / (s["mass_table"]/s["m"])
     else:
+        s["transfer"] = 0.0
         s["impact"] = 0.0
 
     return s
@@ -84,11 +85,12 @@ def update_state_down(step_size, s):
     
     if s["x"] >= s["x_max"] :
         s["impact"] = - s["impulse_k"] * (s["x"]-s["x_max"])
-        s["transfer"] = s["impact"] / s["m"]
+        s["transfer"] = s["a"] / (s["mass_table"]/s["m"])
     elif s["x"] <= s["x_min"]:
         s["impact"] = - s["impulse_k"] * (s["x"]-s["x_min"])
-        s["transfer"] = s["impact"] / s["m"]
+        s["transfer"] = s["a"] / (s["mass_table"]/s["m"])
     else:
+        s["transfer"] = 0.0
         s["impact"] = 0.0
     return s
 
@@ -108,9 +110,15 @@ def propogate(step_size,num_steps,num_cycles,state_vector):
     flow2_list = []
     transfer_a = []
     vol_2 = []
+    pressure = state_vector["P_wall"]
     
     for cycle in range(0,num_cycles):
       #Algorithm Engine
+      if cycle == 0:
+          state_vector["P_wall"] = 0.5 * pressure
+      else:
+          state_vector["P_wall"] = pressure
+      
       for dt in range(1,num_steps):
           state_vector=  update_state_up(step_size,state_vector)
         
@@ -125,7 +133,7 @@ def propogate(step_size,num_steps,num_cycles,state_vector):
           a_list.append(state_vector["a"])
           vel_list.append(state_vector["u"])
           pos_list.append(state_vector["x"])
-          transfer_a.append(state_vector["transfer"])
+          transfer_a.append(state_vector["transfer"]/9.8)
           vol_2.append(state_vector["V_2"])
     
       for dt in range(1,num_steps):
@@ -141,7 +149,7 @@ def propogate(step_size,num_steps,num_cycles,state_vector):
           a_list.append(state_vector["a"])
           vel_list.append(state_vector["u"])
           pos_list.append(state_vector["x"])
-          transfer_a.append(state_vector["transfer"])
+          transfer_a.append(state_vector["transfer"]/9.8)
           vol_2.append(state_vector["V_2"])
 
 
@@ -181,7 +189,7 @@ def propogate(step_size,num_steps,num_cycles,state_vector):
     
     plt.subplot(6, 2, 8)
     plt.plot(times, transfer_a, 'ko-')
-    plt.ylabel('Newtons')
+    plt.ylabel("transfer g's")
 
     plt.subplot(6, 2, 9)
     vel_average = sum(vel_list)/len(vel_list)
@@ -193,14 +201,18 @@ def propogate(step_size,num_steps,num_cycles,state_vector):
     table_height = 0.05
     plt.plot(times, pos_list, 'r-')
     plt.ylabel('position m')
-
+    tot = 0
+    for each in transfer_a:
+        print(each)
+        tot = tot + each**2
+    print("The grms is : " + str(sqrt( tot / (len(transfer_a) * step_size) ) ) )
     plt.show()
 
 #main loop
-gauge_pressure = 382476 #Pressure supplied to system
+gauge_pressure = 112476 #Pressure supplied to system
 mass = 0.5#mass of cylinder
-r = 0.03#radius of cylinder
-cycles = 50
+r = 0.01#radius of cylinder
+cycles = 5
 
 state_vector ={
     "P_1":101300,#Pressure in Pascals
@@ -209,9 +221,9 @@ state_vector ={
     "air_density":1.225,#Desnity of air in kg/m^3
     "radius": r,#radius of cylinder in meters
     "A_inlet":3.14 * 0.003175**2,#Cross sectional area of inlet, meters
-    "k":0.03,#imperical flow resistance
-    "x_max":0.030,#length at which piston hits table
-    "x_min":0.010,#Min position of piston
+    "k":0.01,#imperical flow resistance
+    "x_max":0.020,#length at which piston hits table
+    "x_min":0.005,#Min position of piston
     "R":8.314,#Ideal Gas Const J/mol K
     "T":273,#Temp in Kelvin
     "m":mass,#mass of cylinder in kg
@@ -223,7 +235,7 @@ state_vector ={
     "flow_1":0.0, #Air flow in moles/s this will be function of pressure differential
     "time":0.0, #Global time variables sec
     "impact": 0.0, #Force due t impact Newtons
-    "impulse_k": 1000000, #emprical impulse coefficient
+    "impulse_k": 500000, #emprical impulse coefficient
     "mass_table": 10.0, #mass of table
     "transfer": 0.0, #Energy transfered to the table
     "momentum_loss_factor":1.0 #emprical factor to gauge inefficency (sound, heat loss)
@@ -242,7 +254,7 @@ state_vector.update({
     "n_2":(state_vector["P_2"] * state_vector["V_2"]) / (state_vector["R"] * state_vector["T"])
                     })
 
-propogate(0.001,100,cycles,state_vector) #Step size and num_steps
+propogate(0.001,500,cycles,state_vector) #Step size and num_steps
 
 
 
