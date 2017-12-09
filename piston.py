@@ -27,118 +27,196 @@ def moles(n,flow,dt):
 def Volume(x,A):
     return x * A
 
-def flowrate(P,air_density,P_wall,A_inlet,R,T,k):
-    if ( (2/air_density) * (P_wall - P) < 0):
+def flowrate_in(P,air_density,P_wall,A_inlet,R,T,k):
+    if ( (2/air_density) * (P_wall - P) < 0):#This will be replaced by full emprical equation
         return 0
     return sqrt( (2/air_density) * (P_wall - P) ) * A_inlet * ( P_wall / (R*T) * k )
 
-def propogate(step_size,num_steps,direction="up"):
-#Globals
-    P = 101300 # Initial pressure Pascals
-    P_STP = 101300 #Standard room temp pressure
-    P_wall = P_STP + 382476#68947.6 #Wall pressure 689476=100psi gauge pressure
-    air_density = 1.225 # kg/m^3
-    radius = 0.02 # radius of piston meters
-    A = 3.14 * radius**2# Area of piston face
-    A_inlet = 3.14 * 0.003175**2 # cross sectional area of inlet valve
-    k = 0.03 #empiracal constant from fluid denamics through oriface
-    x = 0.010 # intial length meters
-    V = x * A #inital length times area
-    R = 8.314#J/ mol K
-    T = 273#Kelvin
-    n = P * V / ( R * T ) # moles
-    m = 0.5 #mass of piston kg
-    u = 0.0 # velocity
-    a = 0.0 # acceleration
-    F = 0.0 # force
-    friction = 1 # frictional losses
-    #flow = 1 * 0.0224 # Liters per second times moles in a liter
-    impact_point = 0.050 # x distance that hammer makes impact
-    strike=0 # The hammer has not yet struck the table
+def flowrate_out(P,air_density,P_STP,A_inlet,R,T,k):
+    if ( (2/air_density) * (P - P_STP) < 0):#This will be replaced by full emprical equation
+        return 0
+    return sqrt( (2/air_density) * (P - P_STP) ) * A_inlet * ( P / (R*T) * k ) * -1.0#negative sign to represent moles leaving
+
+def update_state_up(step_size, s):
+    s["flow_1"] = flowrate_in(s["P_1"],s["air_density"],s["P_wall"],s["A_inlet"],s["R"],s["T"],s["k"])#calculate the flow rate
+    s["flow_2"] = flowrate_out(s["P_2"],s["air_density"],s["P_STP"],s["A_inlet"],s["R"],s["T"],s["k"])#calculate the flow rate
+    s["n_1"] = moles(s["n_1"],s["flow_1"],step_size) #update num moles
+    s["n_2"] = moles(s["n_2"],s["flow_2"],step_size) #update num moles
+    s["P_1"] = pressure(s["V_1"],s["n_1"],s["R"],s["T"]) # update pressure
+    s["P_2"] = pressure(s["V_2"],s["n_2"],s["R"],s["T"]) # update pressure
+    s["F_1"] = Force(s["P_1"],s["A"]) # subtract room air pressure and estimate friction
+    s["F_2"] = Force(s["P_2"],s["A"]) # subtract room air pressure and estimate friction
+    s["a"] = acceleration(s["F_1"] - s["F_2"],s["m"]) - s["friction_loss"] #calculate a
+    s["u"] = velocity(s["u"],s["a"],step_size ) #update velocity
+    s["x"] = position(s["x"],s["u"],step_size ) #update position
+    s["V_1"] = Volume(s["A"],s["x"]) # calculate V
+    s["V_2"] = Volume(s["A"],s["x_max"]-s["x"]) # calculate V
+    s["time"] = s["time"]+step_size
+
+    return s
+
+def update_state_down(step_size, s):
+    s["flow_1"] = flowrate_out(s["P_1"],s["air_density"],s["P_STP"],s["A_inlet"],s["R"],s["T"],s["k"])#calculate the flow rate
+    s["flow_2"] = flowrate_in(s["P_2"],s["air_density"],s["P_wall"],s["A_inlet"],s["R"],s["T"],s["k"])#calculate the flow rate
+    s["n_1"] = moles(s["n_1"],s["flow_1"],step_size) #update num moles
+    s["n_2"] = moles(s["n_2"],s["flow_2"],step_size) #update num moles
+    s["P_1"] = pressure(s["V_1"],s["n_1"],s["R"],s["T"]) # update pressure
+    s["P_2"] = pressure(s["V_2"],s["n_2"],s["R"],s["T"]) # update pressure
+    s["F_1"] = Force(s["P_1"],s["A"]) # subtract room air pressure and estimate friction
+    s["F_2"] = Force(s["P_2"],s["A"]) # subtract room air pressure and estimate friction
+    s["a"] = acceleration(s["F_1"] - s["F_2"],s["m"]) - s["friction_loss"] #calculate a
+    s["u"] = velocity(s["u"],s["a"],step_size ) #update velocity
+    s["x"] = position(s["x"],s["u"],step_size ) #update position
+    s["V_1"] = Volume(s["A"],s["x"]) # calculate V
+    s["V_2"] = Volume(s["A"],s["x_max"]-s["x"]) # calculate V
+    s["time"] = s["time"]+step_size
     
-    P_list = [] # for plotting
+    return s
+
+
+def propogate(step_size,num_steps,num_cycles,state_vector,direction="up"):
+#Globals
+
+    P1_list = [] # for plotting
     pos_list = []
     times = []
     vel_list = []
-    moles_list = []
+    moles1_list = []
     a_list = []
-    vol_list = []
-    flow_list = []
+    flow1_list = []
+    P2_list = []
+    moles2_list = []
+    flow2_list = []
     
-    #Algorithm Engine
-    for dt in range(1,num_steps):
-        #pdb.set_trace()
-        flow = flowrate(P,air_density,P_wall,A_inlet,R,T,k)#calculate the flow rate
-        n = moles(n,flow,step_size) #update num moles
-        P = pressure(V,n,R,T) # update pressure
-        F = Force(P,A) - (P_STP * A) - friction # subtract room air pressure and estimate friction
-        a = acceleration(F,m) #calculate a
-        u = velocity(u,a,step_size ) #update velocity
-        x = position(x,u,step_size ) #update position
-        V = Volume(A,x) # calculate V
+    for cycle in range(0,num_cycles):
+      #Algorithm Engine
+      for dt in range(1,num_steps):
+          state_vector=  update_state_up(step_size,state_vector)
         
-        if(x > impact_point ):
-            energy = 0.5 * m * u*u
-            if not strike:
-                print("Energy of impact = " + str(energy) +"Joules")
-                strike=1
-            u = 0
-            a = 0
-            x = impact_point
-    #End Engine
+          if(state_vector["x"] > state_vector["x_max"] and 0 ):
+              energy = 0.5 * m * u*u
+              if not strike:
+                  print("Energy of impact = " + str(energy) +"Joules")
+                  strike=1
+              u = 0
+              a = 0
+              x = impact_point
+      #End Engine
     
-        #Gather for plotting
-        flow_list.append(flow)
-        moles_list.append(n)
-        times.append(dt)
-        P_list.append(P)
-        a_list.append(a)
-        vel_list.append(u)
-        pos_list.append(x)
-        vol_list.append(V)
-        #print("timestep = " + str(dt))
-        #print("position = " + str(x))
-        #print("Presure = " + str(P))
+          #Gather for plotting
+          flow1_list.append(state_vector["flow_1"])
+          flow2_list.append(state_vector["flow_2"])
+          moles1_list.append(state_vector["n_1"])
+          moles2_list.append(state_vector["n_2"])
+          times.append(state_vector["time"])
+          P1_list.append(state_vector["P_1"])
+          P2_list.append(state_vector["P_2"])
+          a_list.append(state_vector["a"])
+          vel_list.append(state_vector["u"])
+          pos_list.append(state_vector["x"])
+
+      for dt in range(1,num_steps):
+          state_vector= update_state_down(step_size,state_vector)
+        
+          flow1_list.append(state_vector["flow_1"])
+          flow2_list.append(state_vector["flow_2"])
+          moles1_list.append(state_vector["n_1"])
+          moles2_list.append(state_vector["n_2"])
+          times.append(state_vector["time"])
+          P1_list.append(state_vector["P_1"])
+          P2_list.append(state_vector["P_2"])
+          a_list.append(state_vector["a"])
+          vel_list.append(state_vector["u"])
+          pos_list.append(state_vector["x"])
+
+#for x in pos_list:
+#  print(x)
     #Plots
-    plt.subplot(6, 1, 1)
-    plt.plot(times, P_list, 'ko-')
-    plt.title('Time evolution of piston')
-    plt.ylabel('Pressure in Pascals')
+    plt.subplot(6, 2, 1)
+    plt.plot(times, P1_list, 'ko-')
+    plt.title('Time evolution of bottom of piston')
+    plt.ylabel('Pressure Pascals')
     
-    plt.subplot(6, 1, 2)
-    plt.plot(times, flow_list, 'y-')
-    plt.ylabel('flow in moles/sec')
+    plt.subplot(6, 2, 2)
+    plt.plot(times, P2_list, 'ko-')
+    plt.title('Time evolution of top of piston')
+    plt.ylabel('Pressure Pascals')
+    
+    plt.subplot(6, 2, 3)
+    plt.plot(times, flow1_list, 'y-')
+    plt.ylabel('moles/sec')
+    
+    plt.subplot(6, 2, 4)
+    plt.plot(times, flow2_list, 'y-')
+    plt.ylabel('moles/sec')
 
-    plt.subplot(6, 1, 3)
-    plt.plot(times, moles_list, 'y.-')
-    plt.ylabel('gas in moles')
+    plt.subplot(6, 2, 5)
+    plt.plot(times, moles1_list, 'y.-')
+    plt.ylabel('gas moles')
+    
+    plt.subplot(6, 2, 6)
+    plt.plot(times, moles2_list, 'y.-')
+    plt.ylabel('gas moles')
 
-    plt.subplot(6, 1, 4)
+    plt.subplot(6, 2, 7)
     plt.plot(times, a_list, 'ko-')
-    plt.ylabel('acceleration m/ss')
+    plt.ylabel(' m/s**2')
 
-    plt.subplot(6, 1, 5)
+    plt.subplot(6, 2, 9)
     vel_average = sum(vel_list)/len(vel_list)
     #plt.plot(times, vel_list, [-10,num_steps],[vel_average,vel_average] ,'b.-')
     plt.plot(times, vel_list ,'b.-')
-    plt.ylabel('Velocity m/s')
+    plt.ylabel(' m/s')
 
-    plt.subplot(6, 1, 6)
+    plt.subplot(6, 2, 11)
     table_height = 0.05
-    plt.plot(times, pos_list,[-10,num_steps],[table_height,table_height], 'r-')
+    plt.plot(times, pos_list, 'r-')
     plt.ylabel('position m')
-    
-#plt.subplot(7, 1, 7)
-#    plt.plot(times, vol_list, 'r.-')
-#    plt.xlabel('time (millisecond)')
-#    plt.ylabel('Volume m^3')
 
     plt.show()
 
 #main loop
-state ={}
+gauge_pressure = 482476 #Pressure supplied to system
+mass = 0.5#mass of cylinder
+r = 0.03#radius of cylinder
+cycles = 3
 
-propogate(0.001,100,direction="up") #Step size and num_steps
+state_vector ={
+    "P_1":101300,#Pressure in Pascals
+    "P_STP":101300,#Standard Temp and Pressure P
+    "P_2": 101300,#Pressure of seond piston cavity
+    "air_density":1.225,#Desnity of air in kg/m^3
+    "radius": r,#radius of cylinder in meters
+    "A_inlet":3.14 * 0.003175**2,#Cross sectional area of inlet, meters
+    "k":0.03,#imperical flow resistance
+    "x_max":0.05,#length at which piston hits table
+    "x_min":0.010,#Min position of piston
+    "R":8.314,#Ideal Gas Const J/mol K
+    "T":273,#Temp in Kelvin
+    "m":mass,#mass of cylinder in kg
+    "u":0.0,#velocity m/s
+    "a":0.0,#Acceleration m/ss
+    "F_1":0.0,#Force applied to piston, N
+    "F_2":0.0,#Force top side of piston
+    "friction_loss":1.0,#empirical friction force of piston
+    "flow_1":0.0, #Air flow in moles/s this will be function of pressure differential
+    "time":0.0 #Global time variables sec
+}
+state_vector.update({
+    "P_wall":state_vector["P_STP"] + gauge_pressure,#Pressure of regulator
+    "A":3.14 * state_vector["radius"]**2,#Cross sectional area of cylinder
+    "x":state_vector["x_min"],#Postion of piston meters
+                    })
+state_vector.update({
+    "V_1":state_vector["A"] * state_vector["x"],
+    "V_2":state_vector["A"] * (state_vector["x_max"]-state_vector["x"])
+                    })
+state_vector.update({
+    "n_1":(state_vector["P_1"] * state_vector["V_1"]) / (state_vector["R"] * state_vector["T"]),
+    "n_2":(state_vector["P_2"] * state_vector["V_2"]) / (state_vector["R"] * state_vector["T"])
+                    })
+
+propogate(0.001,100,cycles,state_vector,direction="up") #Step size and num_steps
 
 
 
