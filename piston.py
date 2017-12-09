@@ -28,14 +28,14 @@ def Volume(x,A):
     return x * A
 
 def flowrate_in(P,air_density,P_wall,A_inlet,R,T,k):
-    if ( (2/air_density) * (P_wall - P) < 0):#This will be replaced by full emprical equation
-        return 0
+    if ( (P_wall - P) < 0):#This will be replaced by full emprical equation
+        return sqrt( (2/air_density) * (P - P_wall) ) * A_inlet * ( P / (R*T) * k ) * -1.0
     return sqrt( (2/air_density) * (P_wall - P) ) * A_inlet * ( P_wall / (R*T) * k )
 
 def flowrate_out(P,air_density,P_STP,A_inlet,R,T,k):
-    if ( (2/air_density) * (P - P_STP) < 0):#This will be replaced by full emprical equation
-        return 0
-    return sqrt( (2/air_density) * (P - P_STP) ) * A_inlet * ( P / (R*T) * k ) * -1.0#negative sign to represent moles leaving
+    if ( (P - P_STP) < 0):#This will be replaced by full emprical equation
+        return sqrt( (2/air_density) * (P_STP - P) ) * A_inlet * ( P_STP / (R*T) * k )
+    return sqrt( (2/air_density) * (P - P_STP) ) * A_inlet * ( P / (R*T) * k ) * -1.0 #negative sign to represent moles leaving
 
 def update_state_up(step_size, s):
     s["flow_1"] = flowrate_in(s["P_1"],s["air_density"],s["P_wall"],s["A_inlet"],s["R"],s["T"],s["k"])#calculate the flow rate
@@ -46,12 +46,23 @@ def update_state_up(step_size, s):
     s["P_2"] = pressure(s["V_2"],s["n_2"],s["R"],s["T"]) # update pressure
     s["F_1"] = Force(s["P_1"],s["A"]) # subtract room air pressure and estimate friction
     s["F_2"] = Force(s["P_2"],s["A"]) # subtract room air pressure and estimate friction
-    s["a"] = acceleration(s["F_1"] - s["F_2"],s["m"]) - s["friction_loss"] #calculate a
+    s["a"] = acceleration(s["F_1"] - s["F_2"] + s["impact"]  - s["friction_loss"] ,s["m"]) #calculate a
     s["u"] = velocity(s["u"],s["a"],step_size ) #update velocity
     s["x"] = position(s["x"],s["u"],step_size ) #update position
+    if s["x"] > s["x_max"]:
+        s["x"] = s["x_max"]
     s["V_1"] = Volume(s["A"],s["x"]) # calculate V
     s["V_2"] = Volume(s["A"],s["x_max"]-s["x"]) # calculate V
     s["time"] = s["time"]+step_size
+    
+    if s["x"] >= s["x_max"] :
+        s["impact"] = - s["impulse_k"] * (s["x"]-s["x_max"])
+        s["transfer"] = s["impact"] / s["m"]
+    elif s["x"] <= s["x_min"]:
+        s["impact"] = - s["impulse_k"] * (s["x"]-s["x_min"])
+        s["transfer"] = s["impact"] / s["m"]
+    else:
+        s["impact"] = 0.0
 
     return s
 
@@ -64,17 +75,27 @@ def update_state_down(step_size, s):
     s["P_2"] = pressure(s["V_2"],s["n_2"],s["R"],s["T"]) # update pressure
     s["F_1"] = Force(s["P_1"],s["A"]) # subtract room air pressure and estimate friction
     s["F_2"] = Force(s["P_2"],s["A"]) # subtract room air pressure and estimate friction
-    s["a"] = acceleration(s["F_1"] - s["F_2"],s["m"]) - s["friction_loss"] #calculate a
+    s["a"] = acceleration(s["F_1"] - s["F_2"] + s["impact"] - s["friction_loss"],s["m"]) #calculate a
     s["u"] = velocity(s["u"],s["a"],step_size ) #update velocity
     s["x"] = position(s["x"],s["u"],step_size ) #update position
+    if s["x"] > s["x_max"]:
+        s["x"] = s["x_max"]
     s["V_1"] = Volume(s["A"],s["x"]) # calculate V
     s["V_2"] = Volume(s["A"],s["x_max"]-s["x"]) # calculate V
     s["time"] = s["time"]+step_size
     
+    if s["x"] >= s["x_max"] :
+        s["impact"] = - s["impulse_k"] * (s["x"]-s["x_max"])
+        s["transfer"] = s["impact"] / s["m"]
+    elif s["x"] <= s["x_min"]:
+        s["impact"] = - s["impulse_k"] * (s["x"]-s["x_min"])
+        s["transfer"] = s["impact"] / s["m"]
+    else:
+        s["impact"] = 0.0
     return s
 
 
-def propogate(step_size,num_steps,num_cycles,state_vector,direction="up"):
+def propogate(step_size,num_steps,num_cycles,state_vector):
 #Globals
 
     P1_list = [] # for plotting
@@ -87,22 +108,14 @@ def propogate(step_size,num_steps,num_cycles,state_vector,direction="up"):
     P2_list = []
     moles2_list = []
     flow2_list = []
+    transfer_a = []
+    vol_2 = []
     
     for cycle in range(0,num_cycles):
       #Algorithm Engine
       for dt in range(1,num_steps):
           state_vector=  update_state_up(step_size,state_vector)
         
-          if(state_vector["x"] > state_vector["x_max"] and 0 ):
-              energy = 0.5 * m * u*u
-              if not strike:
-                  print("Energy of impact = " + str(energy) +"Joules")
-                  strike=1
-              u = 0
-              a = 0
-              x = impact_point
-      #End Engine
-    
           #Gather for plotting
           flow1_list.append(state_vector["flow_1"])
           flow2_list.append(state_vector["flow_2"])
@@ -114,7 +127,9 @@ def propogate(step_size,num_steps,num_cycles,state_vector,direction="up"):
           a_list.append(state_vector["a"])
           vel_list.append(state_vector["u"])
           pos_list.append(state_vector["x"])
-
+          transfer_a.append(state_vector["transfer"])
+          vol_2.append(state_vector["V_2"])
+    
       for dt in range(1,num_steps):
           state_vector= update_state_down(step_size,state_vector)
         
@@ -128,6 +143,10 @@ def propogate(step_size,num_steps,num_cycles,state_vector,direction="up"):
           a_list.append(state_vector["a"])
           vel_list.append(state_vector["u"])
           pos_list.append(state_vector["x"])
+          transfer_a.append(state_vector["transfer"])
+          vol_2.append(state_vector["V_2"])
+
+
 
 #for x in pos_list:
 #  print(x)
@@ -161,12 +180,20 @@ def propogate(step_size,num_steps,num_cycles,state_vector,direction="up"):
     plt.subplot(6, 2, 7)
     plt.plot(times, a_list, 'ko-')
     plt.ylabel(' m/s**2')
+    
+    plt.subplot(6, 2, 8)
+    plt.plot(times, transfer_a, 'ko-')
+    plt.ylabel('Newtons')
 
     plt.subplot(6, 2, 9)
     vel_average = sum(vel_list)/len(vel_list)
     #plt.plot(times, vel_list, [-10,num_steps],[vel_average,vel_average] ,'b.-')
     plt.plot(times, vel_list ,'b.-')
     plt.ylabel(' m/s')
+
+    plt.subplot(6, 2, 10)
+    plt.plot(times, vol_2, 'r-')
+    plt.ylabel('Vol2 m^3')
 
     plt.subplot(6, 2, 11)
     table_height = 0.05
@@ -176,10 +203,10 @@ def propogate(step_size,num_steps,num_cycles,state_vector,direction="up"):
     plt.show()
 
 #main loop
-gauge_pressure = 482476 #Pressure supplied to system
+gauge_pressure = 282476 #Pressure supplied to system
 mass = 0.5#mass of cylinder
 r = 0.03#radius of cylinder
-cycles = 3
+cycles = 50
 
 state_vector ={
     "P_1":101300,#Pressure in Pascals
@@ -189,7 +216,7 @@ state_vector ={
     "radius": r,#radius of cylinder in meters
     "A_inlet":3.14 * 0.003175**2,#Cross sectional area of inlet, meters
     "k":0.03,#imperical flow resistance
-    "x_max":0.05,#length at which piston hits table
+    "x_max":0.03,#length at which piston hits table
     "x_min":0.010,#Min position of piston
     "R":8.314,#Ideal Gas Const J/mol K
     "T":273,#Temp in Kelvin
@@ -200,7 +227,12 @@ state_vector ={
     "F_2":0.0,#Force top side of piston
     "friction_loss":1.0,#empirical friction force of piston
     "flow_1":0.0, #Air flow in moles/s this will be function of pressure differential
-    "time":0.0 #Global time variables sec
+    "time":0.0, #Global time variables sec
+    "impact": 0.0, #Force due t impact Newtons
+    "impulse_k": 100000, #emprical impulse coefficient
+    "mass_table": 10.0, #mass of table
+    "transfer": 0.0, #Energy transfered to the table
+    "momentum_loss_factor":1.0 #emprical factor to gauge inefficency (sound, heat loss)
 }
 state_vector.update({
     "P_wall":state_vector["P_STP"] + gauge_pressure,#Pressure of regulator
@@ -216,7 +248,7 @@ state_vector.update({
     "n_2":(state_vector["P_2"] * state_vector["V_2"]) / (state_vector["R"] * state_vector["T"])
                     })
 
-propogate(0.001,100,cycles,state_vector,direction="up") #Step size and num_steps
+propogate(0.001,100,cycles,state_vector) #Step size and num_steps
 
 
 
